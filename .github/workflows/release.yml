@@ -1,0 +1,130 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows EXE
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build with Maven
+        run: mvn -B clean package -DskipTests
+
+      - name: List target directory
+        run: dir target
+
+      - name: Create Windows application with jpackage
+        shell: pwsh
+        run: |
+          $jar = Get-ChildItem -Path target -Filter "html-viewer-*.jar" | Where-Object { $_.Name -notlike "*-original*" } | Select-Object -First 1
+          if (-not $jar) { throw "JAR not found" }
+          Write-Host "Using JAR: $($jar.FullName)"
+
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+
+          jpackage `
+            --type exe `
+            --input target `
+            --name "HTMLViewer" `
+            --main-jar $jar.Name `
+            --main-class com.htmlviewer.HTMLViewerApp `
+            --dest dist `
+            --app-version ${{ github.event.inputs.version || '1.0.0' }} `
+            --description "Modern Liquid Glass HTML Viewer" `
+            --vendor "exu-coder" `
+            --win-dir-chooser `
+            --win-shortcut `
+            --win-menu `
+            --win-menu-group "HTML Viewer" `
+            --java-options "-Xmx512m"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: HTMLViewer-Windows
+          path: |
+            dist/**
+            target/html-viewer-*.jar
+          retention-days: 14
+
+  release:
+    name: Create GitHub Release
+    needs: build-windows
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: HTMLViewer-Windows
+          path: artifacts
+
+      - name: Display artifacts
+        run: find artifacts -type f
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "version=v${{ github.event.inputs.version || '1.0.0' }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: HTML Viewer ${{ steps.version.outputs.version }}
+          body: |
+            ## HTML Viewer – Liquid Glass Edition
+            
+            Modern futuristic HTML Viewer for Windows built with JavaFX.
+            
+            ### Downloads
+            - **HTMLViewer.exe** – Windows installer / executable
+            - **html-viewer-*.jar** – Runnable JAR (requires Java 17+)
+            
+            ### Features
+            - Liquid Glass / Glassmorphism UI
+            - Open local HTML files
+            - Clean dark futuristic theme
+            - Built with Java 21 + JavaFX
+            
+            ### Requirements
+            - Windows 10 / 11
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.jar
+            artifacts/dist/**
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
