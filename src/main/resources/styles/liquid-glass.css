@@ -72,6 +72,14 @@
     -fx-padding: 2;
 }
 
+/* Drag-over highlight */
+.web-container.drag-over {
+    -fx-border-color: rgba(167, 139, 250, 0.85);
+    -fx-border-width: 2;
+    -fx-background-color: rgba(167, 139, 250, 0.12);
+    -fx-effect: dropshadow(gaussian, rgba(167, 139, 250, 0.5), 24, 0.4, 0, 0);
+}
+
 /* WebView itself */
 .web-view {
     -fx-background-color: transparent;
