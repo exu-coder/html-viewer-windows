@@ -1,19 +1,18 @@
 package com.htmlviewer;
 
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
-import javafx.scene.effect.DropShadow;
-import javafx.scene.effect.GaussianBlur;
+import javafx.scene.input.*;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.paint.LinearGradient;
 import javafx.scene.paint.Stop;
 import javafx.scene.paint.CycleMethod;
-import javafx.scene.shape.Rectangle;
 import javafx.scene.web.WebEngine;
 import javafx.scene.web.WebView;
 import javafx.stage.FileChooser;
@@ -21,34 +20,41 @@ import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 
 import java.io.File;
+import java.nio.file.Files;
+import java.util.List;
 
 /**
  * Modern Liquid Glass themed HTML Viewer
- * Futuristic glassmorphism design with translucent panels
+ * Supports: Open file, Drag & Drop, Paste (Ctrl+V)
  */
 public class HTMLViewerApp extends Application {
 
     private WebView webView;
     private WebEngine webEngine;
     private Label titleLabel;
+    private Label statusLabel;
     private Stage primaryStage;
+    private StackPane webContainer;
 
     @Override
     public void start(Stage stage) {
         this.primaryStage = stage;
-        stage.initStyle(StageStyle.TRANSPARENT); // For glass effect
+        stage.initStyle(StageStyle.TRANSPARENT);
 
-        // Root container with gradient background
         StackPane root = new StackPane();
         root.setStyle("-fx-background-color: transparent;");
 
-        // Animated gradient background
         Region background = createLiquidBackground();
         root.getChildren().add(background);
 
-        // Main glass panel
         VBox glassPanel = createGlassPanel();
         root.getChildren().add(glassPanel);
+
+        // Global drag & drop on the whole window
+        setupDragAndDrop(root);
+
+        // Global keyboard shortcuts (Ctrl+V paste, Ctrl+O open)
+        root.addEventFilter(KeyEvent.KEY_PRESSED, this::handleKeyPress);
 
         Scene scene = new Scene(root, 1200, 800);
         scene.setFill(Color.TRANSPARENT);
@@ -62,8 +68,6 @@ public class HTMLViewerApp extends Application {
     private Region createLiquidBackground() {
         Region bg = new Region();
         bg.setPrefSize(Double.MAX_VALUE, Double.MAX_VALUE);
-
-        // Deep space + neon gradient
         LinearGradient gradient = new LinearGradient(
                 0, 0, 1, 1, true, CycleMethod.NO_CYCLE,
                 new Stop(0.0, Color.web("#0a0a1f")),
@@ -81,12 +85,10 @@ public class HTMLViewerApp extends Application {
         panel.setAlignment(Pos.TOP_CENTER);
         panel.getStyleClass().add("glass-panel");
 
-        // Top bar with glass effect
         HBox topBar = createTopBar();
         panel.getChildren().add(topBar);
 
-        // WebView container with glass border
-        StackPane webContainer = new StackPane();
+        webContainer = new StackPane();
         webContainer.getStyleClass().add("web-container");
         VBox.setVgrow(webContainer, Priority.ALWAYS);
 
@@ -95,13 +97,13 @@ public class HTMLViewerApp extends Application {
         webView.setContextMenuEnabled(true);
         webView.getStyleClass().add("web-view");
 
-        // Load welcome page
-        webEngine.loadContent(getWelcomeHtml());
+        // Also allow drag & drop directly on the WebView area
+        setupDragAndDrop(webContainer);
 
+        webEngine.loadContent(getWelcomeHtml());
         webContainer.getChildren().add(webView);
         panel.getChildren().add(webContainer);
 
-        // Status bar
         HBox statusBar = createStatusBar();
         panel.getChildren().add(statusBar);
 
@@ -123,13 +125,20 @@ public class HTMLViewerApp extends Application {
         Button openBtn = createGlassButton("Open HTML");
         openBtn.setOnAction(e -> openFile());
 
+        Button pasteBtn = createGlassButton("Paste");
+        pasteBtn.setOnAction(e -> pasteFromClipboard());
+
         Button refreshBtn = createGlassButton("Refresh");
         refreshBtn.setOnAction(e -> webEngine.reload());
 
         Button homeBtn = createGlassButton("Home");
-        homeBtn.setOnAction(e -> webEngine.loadContent(getWelcomeHtml()));
+        homeBtn.setOnAction(e -> {
+            webEngine.loadContent(getWelcomeHtml());
+            titleLabel.setText("HTML Viewer");
+            setStatus("Ready • Liquid Glass Theme");
+        });
 
-        bar.getChildren().addAll(titleLabel, spacer, homeBtn, refreshBtn, openBtn);
+        bar.getChildren().addAll(titleLabel, spacer, homeBtn, refreshBtn, pasteBtn, openBtn);
         return bar;
     }
 
@@ -145,25 +154,159 @@ public class HTMLViewerApp extends Application {
         bar.setPadding(new Insets(8, 16, 8, 16));
         bar.getStyleClass().add("status-bar");
 
-        Label status = new Label("Ready • Liquid Glass Theme");
-        status.getStyleClass().add("status-label");
-        bar.getChildren().add(status);
+        statusLabel = new Label("Ready • Drag & Drop HTML files or Ctrl+V to paste");
+        statusLabel.getStyleClass().add("status-label");
+        bar.getChildren().add(statusLabel);
         return bar;
     }
+
+    private void setStatus(String text) {
+        if (statusLabel != null) {
+            Platform.runLater(() -> statusLabel.setText(text));
+        }
+    }
+
+    // ==================== Drag & Drop ====================
+
+    private void setupDragAndDrop(javafx.scene.Node node) {
+        node.setOnDragOver(event -> {
+            if (event.getGestureSource() != node && event.getDragboard().hasFiles()) {
+                event.acceptTransferModes(TransferMode.COPY);
+            }
+            event.consume();
+        });
+
+        node.setOnDragEntered(event -> {
+            if (event.getDragboard().hasFiles()) {
+                webContainer.getStyleClass().add("drag-over");
+                setStatus("Drop HTML file to open…");
+            }
+            event.consume();
+        });
+
+        node.setOnDragExited(event -> {
+            webContainer.getStyleClass().remove("drag-over");
+            setStatus("Ready • Drag & Drop HTML files or Ctrl+V to paste");
+            event.consume();
+        });
+
+        node.setOnDragDropped(event -> {
+            Dragboard db = event.getDragboard();
+            boolean success = false;
+
+            if (db.hasFiles()) {
+                List<File> files = db.getFiles();
+                for (File file : files) {
+                    String name = file.getName().toLowerCase();
+                    if (name.endsWith(".html") || name.endsWith(".htm") || name.endsWith(".xhtml")) {
+                        loadFile(file);
+                        success = true;
+                        break; // load first valid HTML file
+                    }
+                }
+                if (!success && !files.isEmpty()) {
+                    // Try loading any dropped file as text/html fallback
+                    loadFile(files.get(0));
+                    success = true;
+                }
+            }
+
+            webContainer.getStyleClass().remove("drag-over");
+            event.setDropCompleted(success);
+            event.consume();
+        });
+    }
+
+    // ==================== Paste support ====================
+
+    private void handleKeyPress(KeyEvent event) {
+        if (event.isControlDown() && event.getCode() == KeyCode.V) {
+            pasteFromClipboard();
+            event.consume();
+        } else if (event.isControlDown() && event.getCode() == KeyCode.O) {
+            openFile();
+            event.consume();
+        }
+    }
+
+    private void pasteFromClipboard() {
+        Clipboard clipboard = Clipboard.getSystemClipboard();
+
+        // 1. Prefer HTML content from clipboard
+        if (clipboard.hasHtml()) {
+            String html = clipboard.getHtml();
+            if (html != null && !html.isBlank()) {
+                webEngine.loadContent(html);
+                titleLabel.setText("HTML Viewer • Pasted HTML");
+                setStatus("Loaded HTML content from clipboard");
+                return;
+            }
+        }
+
+        // 2. Prefer plain text that looks like HTML
+        if (clipboard.hasString()) {
+            String text = clipboard.getString();
+            if (text != null && !text.isBlank()) {
+                String trimmed = text.trim();
+
+                // Looks like HTML
+                if (trimmed.toLowerCase().startsWith("<!doctype") ||
+                    trimmed.toLowerCase().startsWith("<html") ||
+                    trimmed.contains("<body") || trimmed.contains("<div")) {
+                    webEngine.loadContent(trimmed);
+                    titleLabel.setText("HTML Viewer • Pasted HTML");
+                    setStatus("Loaded HTML content from clipboard");
+                    return;
+                }
+
+                // Looks like a file path
+                File possibleFile = new File(trimmed.replace("\"", ""));
+                if (possibleFile.exists() && possibleFile.isFile()) {
+                    loadFile(possibleFile);
+                    return;
+                }
+            }
+        }
+
+        // 3. Files in clipboard (some systems put files there)
+        if (clipboard.hasFiles()) {
+            List<File> files = clipboard.getFiles();
+            for (File file : files) {
+                String name = file.getName().toLowerCase();
+                if (name.endsWith(".html") || name.endsWith(".htm")) {
+                    loadFile(file);
+                    return;
+                }
+            }
+        }
+
+        setStatus("Clipboard has no HTML content or valid file path");
+    }
+
+    // ==================== File loading ====================
 
     private void openFile() {
         FileChooser fileChooser = new FileChooser();
         fileChooser.setTitle("Open HTML File");
         fileChooser.getExtensionFilters().addAll(
-                new FileChooser.ExtensionFilter("HTML Files", "*.html", "*.htm"),
+                new FileChooser.ExtensionFilter("HTML Files", "*.html", "*.htm", "*.xhtml"),
                 new FileChooser.ExtensionFilter("All Files", "*.*")
         );
 
         File file = fileChooser.showOpenDialog(primaryStage);
         if (file != null) {
+            loadFile(file);
+        }
+    }
+
+    private void loadFile(File file) {
+        try {
             String url = file.toURI().toString();
             webEngine.load(url);
             titleLabel.setText("HTML Viewer • " + file.getName());
+            setStatus("Opened: " + file.getAbsolutePath());
+        } catch (Exception e) {
+            setStatus("Failed to open: " + e.getMessage());
         }
     }
 
@@ -187,14 +330,14 @@ public class HTMLViewerApp extends Application {
                     }
                     .container {
                         text-align: center;
-                        padding: 60px;
+                        padding: 60px 50px;
                         background: rgba(255, 255, 255, 0.05);
                         backdrop-filter: blur(20px);
                         border-radius: 24px;
                         border: 1px solid rgba(255, 255, 255, 0.12);
                         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4),
                                     inset 0 1px 0 rgba(255, 255, 255, 0.1);
-                        max-width: 520px;
+                        max-width: 560px;
                     }
                     h1 {
                         font-size: 2.4rem;
@@ -209,12 +352,23 @@ public class HTMLViewerApp extends Application {
                         font-size: 1.05rem;
                         opacity: 0.75;
                         line-height: 1.6;
-                        margin-bottom: 28px;
+                        margin-bottom: 24px;
                     }
-                    .hint {
-                        font-size: 0.9rem;
-                        opacity: 0.5;
-                        letter-spacing: 1px;
+                    .actions {
+                        display: flex;
+                        gap: 12px;
+                        justify-content: center;
+                        flex-wrap: wrap;
+                        margin-top: 8px;
+                    }
+                    .chip {
+                        font-size: 0.82rem;
+                        padding: 6px 14px;
+                        background: rgba(167, 139, 250, 0.15);
+                        border: 1px solid rgba(167, 139, 250, 0.35);
+                        border-radius: 20px;
+                        letter-spacing: 0.5px;
+                        opacity: 0.9;
                     }
                     .orb {
                         width: 80px;
@@ -235,8 +389,14 @@ public class HTMLViewerApp extends Application {
                 <div class="container">
                     <div class="orb"></div>
                     <h1>LIQUID GLASS</h1>
-                    <p>Modern HTML Viewer<br>Click <b>Open HTML</b> to load a file</p>
-                    <div class="hint">Futuristic • Transparent • Fluid</div>
+                    <p>Modern HTML Viewer<br>
+                    Drag & drop an HTML file here<br>
+                    or press <b>Ctrl + V</b> to paste</p>
+                    <div class="actions">
+                        <span class="chip">Drag & Drop</span>
+                        <span class="chip">Ctrl + V Paste</span>
+                        <span class="chip">Ctrl + O Open</span>
+                    </div>
                 </div>
             </body>
             </html>
