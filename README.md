@@ -1,43 +1,53 @@
-# HTML Viewer for Windows
+# HTML Viewer for Windows (Java + JavaFX)
 
-A simple desktop HTML Viewer application for Windows that can be compiled into a standalone EXE.
+A modern, futuristic **Liquid Glass** themed HTML Viewer desktop application for Windows.  
+Built with **Java 17+** and **JavaFX** WebView.
 
 ## Features
+- Clean Liquid Glass / Glassmorphism UI
 - Open and view local HTML files
-- Clean, minimal interface
-- Built with Python + pywebview (easy to package as EXE)
-
-## Quick Start (Development)
-
-1. Install dependencies:
-```bash
-pip install pywebview
-```
-
-2. Run the app:
-```bash
-python html_viewer.py
-```
-
-## Build as Windows EXE
-
-1. Install PyInstaller:
-```bash
-pip install pyinstaller
-```
-
-2. Build the executable:
-```bash
-pyinstaller --onefile --windowed --name "HTMLViewer" html_viewer.py
-```
-
-The EXE will be created in the `dist/` folder.
-
-## Usage
-- Launch the app
-- Use **File → Open** to select an HTML file
-- The content will be displayed in the embedded browser view
+- Smooth translucent panels + blur effects
+- Modern dark futuristic aesthetic
+- Standalone executable (via jpackage or Launch4j)
 
 ## Requirements
-- Python 3.8+
-- Windows 10/11 recommended
+- JDK 17 or newer
+- Maven 3.8+
+
+## Run (Development)
+
+```bash
+mvn clean javafx:run
+```
+
+## Build JAR
+
+```bash
+mvn clean package
+```
+
+The runnable JAR will be in `target/html-viewer-1.0.0.jar`
+
+## Create Windows EXE (recommended)
+
+After building the JAR:
+
+```bash
+jpackage --input target \
+  --name "HTMLViewer" \
+  --main-jar html-viewer-1.0.0.jar \
+  --main-class com.htmlviewer.HTMLViewerApp \
+  --type exe \
+  --win-console \
+  --app-version 1.0.0 \
+  --description "Modern Liquid Glass HTML Viewer"
+```
+
+Or use Launch4j / jlink for a smaller native image.
+
+## Theme
+The application uses a custom **Liquid Glass** theme:
+- Translucent panels
+- Soft blur / frosted glass effect
+- Neon accent gradients
+- Dark futuristic background
